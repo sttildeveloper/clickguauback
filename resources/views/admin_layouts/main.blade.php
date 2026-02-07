@@ -9,7 +9,7 @@
     <meta name="description" content="">
     <meta name="author" content="">
 
-    <title>Shortzz</title>
+    <title>{{ config('app.name', 'ClickGuau') }}</title>
 
 
     <link href="{{ asset('assets/css/app.min.css') }}" rel="stylesheet">
