@@ -245,7 +245,6 @@ class UserController extends Controller
 
             if (empty($CheckUSer)) {
                 $CheckUSer = new User();
-                $CheckUSer->user_id = User::get_random_string();
                 $CheckUSer->identity = $identity;
                 $CheckUSer->login_type = $login_type;
                 $CheckUSer->device_token = '';

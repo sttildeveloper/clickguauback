@@ -11,18 +11,7 @@ class User extends Authenticatable
 
     protected $table = 'tbl_users';
     protected $primaryKey  = 'user_id';
-    protected $keyType = 'string';
-    public $incrementing = false;
+    protected $keyType = 'int';
+    public $incrementing = true;
     public $timestamps = true;
-
-    public static function get_random_string($field_code='user_id')
-	{
-        $random_unique  =  sprintf('%04X%04X', mt_rand(0, 65535), mt_rand(0, 65535), mt_rand(0, 65535), mt_rand(16384, 20479), mt_rand(32768, 49151), mt_rand(0, 65535), mt_rand(0, 65535), mt_rand(0, 65535));
-
-        $user = User::where('user_id', '=', $random_unique)->first();
-        if ($user != null) {
-            User::get_random_string();
-        }
-        return $random_unique;
-    }
 }
