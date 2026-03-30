@@ -22,6 +22,7 @@ Route::get('logout/{flag}', 'Admin\AdminController@logout')->name('logout');
 Route::get('privacypolicy', [PagesController::class, 'privacypolicy'])->name('privacypolicy');
 Route::get('termsOfUse', [PagesController::class, 'termsOfUse'])->name('termsOfUse');
 Route::get('account-deletion', [PagesController::class, 'accountDeletion'])->name('accountDeletion');
+Route::post('account-deletion/request', [PagesController::class, 'submitAccountDeletionRequest'])->name('accountDeletion.request');
 
 Route::group(array('middleware' => 'checkRole'), function () {
 
