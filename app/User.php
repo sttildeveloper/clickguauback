@@ -11,6 +11,8 @@ class User extends Authenticatable
 
     protected $table = 'tbl_users';
     protected $primaryKey  = 'user_id';
+    protected $keyType = 'string';
+    public $incrementing = false;
     public $timestamps = true;
 
     public static function get_random_string($field_code='user_id')

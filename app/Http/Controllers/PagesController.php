@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\GlobalSettings;
 use App\Pages;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class PagesController extends Controller
 {
@@ -40,6 +42,19 @@ class PagesController extends Controller
 
         $data = Pages::first();
         return view('pages.viewPrivacy',['data'=> $data->privacy]);
+    }
+
+    function accountDeletion()
+    {
+        $helpMail = null;
+
+        if (Schema::hasTable('tbl_settings')) {
+            $helpMail = optional(GlobalSettings::first())->help_mail;
+        }
+
+        return view('pages.accountDeletion', [
+            'helpMail' => $helpMail,
+        ]);
     }
 
 }

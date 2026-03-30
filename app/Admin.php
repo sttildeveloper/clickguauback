@@ -15,9 +15,14 @@ class Admin extends Authenticatable
 
 	public static function verify_request_base($headers)
 	{
+		$unique_key = '';
+		foreach ($headers as $key => $values) {
+			if (strtolower($key) === 'unique-key') {
+				$unique_key = $values[0] ?? '';
+				break;
+			}
+		}
 
-
-		$unique_key = $headers['unique-key'][0];
 		if ($unique_key) {
 			$admin = Admin::where('unique_key', '=', $unique_key)->count();
 

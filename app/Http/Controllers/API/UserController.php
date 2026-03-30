@@ -32,7 +32,7 @@ use Illuminate\Support\Carbon;
 use Google\Client;
 use Illuminate\Support\Facades\File as FacadesFile;
 use Illuminate\Support\Facades\Validator;
-include "./app/Class/AgoraDynamicKey/RtcTokenBuilder.php";
+use Throwable;
 
 class UserController extends Controller
 {
@@ -122,26 +122,91 @@ class UserController extends Controller
         return json_encode(['status' => 200, 'message' => "token generated successfully", 'token' => $token]);
     }
 
+    private function registrationErrorResponse($status, $message, $httpStatus = null)
+    {
+        $httpStatus = $httpStatus ?: $status;
+
+        return response()->json([
+            'status' => $status,
+            'message' => $message,
+            'data' => null,
+        ], $httpStatus);
+    }
+
+    private function resolveRegistrationUserName($requestedUserName, $currentUserId = null)
+    {
+        $requestedUserName = trim((string) $requestedUserName);
+
+        if ($requestedUserName === '') {
+            return Common::generateUniqueUserId();
+        }
+
+        $query = User::where('user_name', $requestedUserName);
+        if (!empty($currentUserId)) {
+            $query->where('user_id', '!=', $currentUserId);
+        }
+
+        if ($query->exists()) {
+            return Common::generateUniqueUserId();
+        }
+
+        return $requestedUserName;
+    }
+
+    private function buildRegistrationResponseData(User $user)
+    {
+        $user_id = $user->user_id;
+
+        $user['platform'] = $user->platform ? (int) $user->platform : 0;
+        $user['is_verify'] = $user->is_verify ? (int) $user->is_verify : 0;
+        $user['my_wallet'] = $user->my_wallet ? (int) $user->my_wallet : 0;
+        $user['status'] = $user->status ? (int) $user->status : 0;
+        $user['freez_or_not'] = $user->freez_or_not ? (int) $user->freez_or_not : 0;
+        $user['token'] = 'Bearer ' . $user->createToken('shortzz')->accessToken;
+        $user['followers_count'] = Followers::where('to_user_id', $user_id)->count();
+        $user['following_count'] = Followers::where('from_user_id', $user_id)->count();
+        $myPostIds = Post::where('user_id', $user_id)->pluck('post_id');
+        $user['my_post_likes'] = Like::whereIn('post_id', $myPostIds)->count();
+
+        $profile_category_data = null;
+        if (!empty($user->profile_category)) {
+            $profile_category_data = ProfileCategory::where('profile_category_id', $user->profile_category)->first();
+        }
+
+        $user['profile_category_name'] = !empty($profile_category_data) ? $profile_category_data['profile_category_name'] : "";
+        $user['user_mobile_no'] = $user->user_mobile_no ? $user->user_mobile_no : "";
+        $user['user_profile'] = $user->user_profile ? $user->user_profile : "";
+        $user['bio'] = $user->bio ? $user->bio : "";
+        $user['profile_category'] = $user->profile_category ? $user->profile_category : "";
+        $user['fb_url'] = $user->fb_url ? $user->fb_url : "";
+        $user['insta_url'] = $user->insta_url ? $user->insta_url : "";
+        $user['youtube_url'] = $user->youtube_url ? $user->youtube_url : "";
+
+        unset($user->timezone);
+        unset($user->created_at);
+        unset($user->updated_at);
+
+        return $user;
+    }
+
     public function Registration(Request $request)
     {
-
-
         $headers = $request->headers->all();
 
         $verify_request_base = Admin::verify_request_base($headers);
 
         if (isset($verify_request_base['status']) && $verify_request_base['status'] == 401) {
-            return response()->json(['success_code' => 401, 'message' => "Unauthorized Access!"]);
+            return $this->registrationErrorResponse(401, "Unauthorized Access!", 401);
             exit();
         }
 
         $rules = [
-            'full_name' => 'required',
-            'user_email' => 'required',
-            'device_token' => 'required',
-            'user_name' => 'required', //|unique:tbl_users
-            'identity' => 'required',
-            'login_type' => 'required',
+            'full_name' => 'required|string',
+            'user_email' => 'required|email',
+            'device_token' => 'nullable|string',
+            'user_name' => 'required|string',
+            'identity' => 'required|string',
+            'login_type' => ['required', Rule::in(['email', 'google', 'apple'])],
             'platform' => 'required',
         ];
 
@@ -150,78 +215,76 @@ class UserController extends Controller
         if ($validator->fails()) {
             $messages = $validator->errors()->all();
             $msg = $messages[0];
-            return response()->json(['status' => 401, 'message' => $msg]);
+            return $this->registrationErrorResponse(422, $msg, 422);
         }
 
-        $CheckUSer =  User::where('identity', $request->get('identity'))->first();
+        $identity = trim((string) $request->get('identity'));
+        $login_type = trim((string) $request->get('login_type'));
+        $device_token = trim((string) $request->get('device_token', ''));
+        $full_name = trim((string) $request->get('full_name'));
+        $user_email = trim((string) $request->get('user_email'));
+        $user_name = trim((string) $request->get('user_name'));
+        $platform = (int) $request->get('platform');
 
-        if (empty($CheckUSer)) {
+        try {
+            DB::beginTransaction();
 
-            $data['full_name'] = $request->get('full_name');
-            $data['user_email'] = $request->get('user_email');
-            $data['device_token'] = $request->get('device_token');
-            $data['user_name'] = Common::generateUniqueUserId();
-            $data['identity'] = $request->get('identity');
-            $data['login_type'] = $request->get('login_type');
-            $data['platform'] = $request->get('platform');
+            $CheckUSer = User::where('identity', $identity)
+                ->where('login_type', $login_type)
+                ->first();
 
-            $result = User::insert($data);
-
-            if (!empty($result)) {
-                $user_id = DB::getPdo()->lastInsertId();
-                $User =  User::where('user_id', $user_id)->first();
-
-                $User['token'] = 'Bearer ' . $User->createToken('shortzz')->accessToken;
-                $User['followers_count'] = Followers::where('to_user_id', $user_id)->count();
-                $User['following_count'] = Followers::where('from_user_id', $user_id)->count();
-                $User['my_post_likes'] = Post::select('tbl_post.*')->leftjoin('tbl_likes as l', 'l.post_id', 'tbl_post.post_id')->where('tbl_post.user_id', $user_id)->count();
-                $profile_category_data = ProfileCategory::where('profile_category_id', $User->profile_category)->first();
-                $User['profile_category_name'] = !empty($profile_category_data) ? $profile_category_data['profile_category_name'] : "";
-                unset($User->timezone);
-                unset($User->created_at);
-                unset($User->updated_at);
-
-                return response()->json(['status' => 200, 'message' => "User Registered Successfully.", 'data' => $User]);
-            } else {
-                return response()->json(['status' => 401, 'message' => "Error While User Registration"]);
+            if (empty($CheckUSer)) {
+                $CheckUSer = User::where('identity', $identity)
+                    ->where(function ($query) use ($login_type) {
+                        $query->whereNull('login_type')
+                            ->orWhere('login_type', '')
+                            ->orWhere('login_type', $login_type);
+                    })
+                    ->first();
             }
-        } else {
-            $identity = $request->get('identity');
-            $data['device_token'] = $request->get('device_token');
 
-            $data['login_type'] = $request->get('login_type');
-            $data['platform'] = $request->get('platform');
+            if (empty($CheckUSer)) {
+                $CheckUSer = new User();
+                $CheckUSer->user_id = User::get_random_string();
+                $CheckUSer->identity = $identity;
+                $CheckUSer->login_type = $login_type;
+                $CheckUSer->device_token = '';
+                $message = "User Registered Successfully.";
+            } else {
+                $message = "User registered successfully.";
+            }
 
-            $user_id = $CheckUSer->user_id;
-            $result =  User::where('identity', $identity)->update($data);
+            $CheckUSer->full_name = $full_name;
+            $CheckUSer->user_email = $user_email;
+            $CheckUSer->platform = $platform;
+            $CheckUSer->login_type = $login_type;
+            $CheckUSer->identity = $identity;
+            $CheckUSer->user_name = $this->resolveRegistrationUserName($user_name, $CheckUSer->user_id ?? null);
 
-            $User =  User::where('user_id', $user_id)->first();
-            $User['platform'] = $User->platform ? (int)$User->platform : 0;
-            $User['is_verify'] = $User->is_verify ? (int)$User->is_verify : 0;
-            $User['my_wallet'] = $User->my_wallet ? (int)$User->my_wallet : 0;
+            if ($device_token !== '') {
+                $CheckUSer->device_token = $device_token;
+            }
 
-            $User['status'] = $User->status ? (int)$User->status : 0;
-            $User['freez_or_not'] = $User->freez_or_not ? (int)$User->freez_or_not : 0;
+            $CheckUSer->save();
 
-            $User['token'] = 'Bearer ' . $User->createToken('shortzz')->accessToken;
-            $User['followers_count'] = Followers::where('to_user_id', $user_id)->count();
-            $User['following_count'] = Followers::where('from_user_id', $user_id)->count();
-            $User['my_post_likes'] = Post::select('tbl_post.*')->leftjoin('tbl_likes as l', 'l.post_id', 'tbl_post.post_id')->where('tbl_post.user_id', $user_id)->count();
-            $profile_category_data = ProfileCategory::where('profile_category_id', $User->profile_category)->first();
-            $User['profile_category_name'] = !empty($profile_category_data) ? $profile_category_data['profile_category_name'] : "";
-            $User['user_mobile_no'] = $User->user_mobile_no ? $User->user_mobile_no : "";
-            $User['user_profile'] = $User->user_profile ? $User->user_profile : "";
-            $User['bio'] = $User->bio ? $User->bio : "";
-            $User['profile_category'] = $User->profile_category ? $User->profile_category : "";
-            $User['fb_url'] = $User->fb_url ? $User->fb_url : "";
-            $User['insta_url'] = $User->insta_url ? $User->insta_url : "";
-            $User['youtube_url'] = $User->youtube_url ? $User->youtube_url : "";
+            $User = User::where('user_id', $CheckUSer->user_id)->first();
+            $User = $this->buildRegistrationResponseData($User);
 
-            unset($User->timezone);
-            unset($User->created_at);
-            unset($User->updated_at);
+            DB::commit();
 
-            return response()->json(['status' => 200, 'message' => "User registered successfully.", 'data' => $User]);
+            return response()->json(['status' => 200, 'message' => $message, 'data' => $User], 200);
+        } catch (Throwable $exception) {
+            DB::rollBack();
+
+            Log::error('Registration failed', [
+                'identity' => $identity,
+                'login_type' => $login_type,
+                'platform' => $platform,
+                'error' => $exception->getMessage(),
+                'exception' => get_class($exception),
+            ]);
+
+            return $this->registrationErrorResponse(500, "Server Error", 500);
         }
     }
 

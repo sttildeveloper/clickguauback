@@ -2,8 +2,11 @@
 
 namespace App\Exceptions;
 
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Throwable;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class Handler extends ExceptionHandler
 {
@@ -50,6 +53,42 @@ class Handler extends ExceptionHandler
      */
     public function render($request, Throwable $exception)
     {
+        if ($request->expectsJson() || $request->is('api/*')) {
+            if ($exception instanceof ValidationException) {
+                $errors = $exception->validator->errors()->all();
+                $message = $errors[0] ?? 'The given data was invalid.';
+
+                return response()->json([
+                    'status' => 422,
+                    'message' => $message,
+                    'data' => null,
+                ], 422);
+            }
+
+            if ($exception instanceof AuthenticationException) {
+                return response()->json([
+                    'status' => 401,
+                    'message' => 'Unauthorized Access!',
+                    'data' => null,
+                ], 401);
+            }
+
+            $statusCode = 500;
+            if ($exception instanceof HttpExceptionInterface) {
+                $statusCode = $exception->getStatusCode();
+            }
+
+            $message = $statusCode >= 500
+                ? 'Server Error'
+                : ($exception->getMessage() ?: 'Request failed.');
+
+            return response()->json([
+                'status' => $statusCode,
+                'message' => $message,
+                'data' => null,
+            ], $statusCode);
+        }
+
         return parent::render($request, $exception);
     }
 }
